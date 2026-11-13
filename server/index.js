@@ -522,6 +522,12 @@ wss.on('connection', (ws) => {
             room.reassignHost();
             room.broadcast();
             break;
+          case 'topup':
+            // Isi ulang chip gratis di lobby — tersedia untuk semua pemain.
+            if (room.game) return; // hanya saat belum main, biar chip sesi stabil
+            seat.chips = Math.min(1e9, seat.chips + 5000);
+            room.broadcast();
+            break;
           case 'action': {
             const act = msg.action;
             if (!g || g.phase !== 'playing') return;

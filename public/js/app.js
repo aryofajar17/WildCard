@@ -695,6 +695,7 @@ function init() {
   };
 
   $('#btn-addbot').onclick = () => send({ t: 'addBot' });
+  $('#btn-topup-lobby').onclick = () => send({ t: 'topup' });
   $('#btn-start').onclick = () => send({ t: 'start' });
   $('#btn-leave').onclick = leaveGame;
   $('#btn-copy').onclick = async () => {
