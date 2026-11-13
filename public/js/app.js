@@ -160,7 +160,12 @@ function renderGame() {
   q.style.width = '34px';
   q.style.height = '34px';
   q.style.fontSize = '15px';
-  q.onclick = leaveGame;
+  q.title = App.mode === 'online' && App.isHost ? 'Akhiri game — kembali ke lobby' : 'Keluar';
+  // Host online: kembali ke lobby (game diakhiri untuk semua). Selain itu: keluar ruang.
+  q.onclick = () => {
+    if (App.mode === 'online' && App.isHost) send({ t: 'lobby' });
+    else leaveGame();
+  };
   oppBox.appendChild(q);
 
   // tengah
@@ -435,8 +440,10 @@ function onServerMsg(msg) {
       App.roomCode = msg.code || App.roomCode;
       App.reconnectTry = 0;
       App.isHost = msg.hostSeat === App.mySeat;
+      App.roundEndShown = false;
       const meSeat = (msg.seats || []).find((s) => s && s.seat === App.mySeat);
       if (meSeat) setChips(meSeat.chips);
+      closeModal(true); // tutup modal akhir ronde / modal dalam game yang masih menggantung
       show('screen-lobby');
       renderLobby();
       break;
@@ -577,6 +584,14 @@ function roundEndModal(st) {
     btn.textContent = '⏳ Menunggu tuan rumah…';
   }
   wrap.appendChild(btn);
+  // Host online bisa menutup meja dan membawa semua pemain balik ke lobby
+  if (App.mode === 'online' && App.isHost) {
+    const lob = document.createElement('button');
+    lob.className = 'btn btn-outline';
+    lob.textContent = '🏠 Kembali ke Lobby';
+    lob.onclick = () => { closeModal(true); send({ t: 'lobby' }); };
+    wrap.appendChild(lob);
+  }
   const quit = document.createElement('button');
   quit.className = 'btn btn-ghost';
   quit.textContent = '🚪 Keluar dari meja';

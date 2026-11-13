@@ -511,6 +511,14 @@ wss.on('connection', (ws) => {
             if (seat.seat !== room.hostSeat) return;
             room.nextRound();
             break;
+          case 'lobby':
+            // Tuan rumah mengakhiri permainan: semua pemain kembali ke lobby yang sama.
+            if (seat.seat !== room.hostSeat || !room.game) return;
+            room.clearTimers();
+            room.game = null;
+            room.reassignHost();
+            room.broadcast();
+            break;
           case 'action': {
             const act = msg.action;
             if (!g || g.phase !== 'playing') return;
