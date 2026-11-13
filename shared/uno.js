@@ -515,7 +515,15 @@ function declareStalemate(st) {
 export function viewFor(st, seat) {
   const v = JSON.parse(JSON.stringify(st));
   v.log = v.log.slice(-30);
+  // Jangan kirim isi deck ke klien: urutan deck = tahu semua kartu yang akan datang (curang).
+  // Klien cuma butuh jumlahnya untuk menampilkan "sisa".
+  v.deckCount = Array.isArray(st.deck) ? st.deck.length : 0;
+  v.deck = [];
+  delete v.sigMap;
   v.players.forEach((p) => {
+    // Token identitas hanya boleh diketahui pemiliknya (dikirim lewat pesan 'joined'),
+    // bukan disiarkan ke semua orang lewat state permainan.
+    delete p.token;
     if (p.seat !== seat) {
       p.handCount = p.hand.length;
       p.hand = [];

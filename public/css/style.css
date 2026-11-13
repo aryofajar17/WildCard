@@ -153,6 +153,21 @@ body {
 .pl-row .chipn { color: var(--accent); font-weight: 700; }
 .settings-list { margin: 4px 0 12px; }
 .settings-list .set-line { font-size: 13px; color: var(--muted); padding: 3px 4px; }
+
+/* ---------- undangan WiFi (QR) ---------- */
+.invite-box {
+  background: var(--panel); border: 1px dashed var(--blue);
+  border-radius: 16px; padding: 12px; margin-bottom: 14px; text-align: center;
+}
+.inv-title { display: block; font-size: 11px; letter-spacing: 1px; color: var(--blue); margin-bottom: 10px; font-weight: 700; }
+#invite-qrs { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+.qr-item { display: flex; flex-direction: column; align-items: center; gap: 5px; text-decoration: none; }
+.qr-item img {
+  width: 118px; height: 118px; background: #fff; border-radius: 12px;
+  padding: 5px; display: block;
+}
+.qr-item b { color: var(--accent); font-size: 13px; letter-spacing: 0.5px; }
+.qr-item span { font-size: 10px; color: var(--muted); }
 .lobby-actions { display: flex; gap: 10px; margin-top: auto; }
 .lobby-actions .btn { flex: 1; }
 .lobby-actions .btn-ghost { flex: 0 0 110px; }

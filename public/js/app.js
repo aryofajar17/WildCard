@@ -34,6 +34,7 @@ const App = {
   mode: null, st: null, mySeat: 0, ws: null, lobby: null, isHost: false,
   timers: [], installEvt: null, createRules: { stacking: true, jumpIn: true, sevenZero: true, extreme: true },
   roundEndShown: false, lastTopId: null, turnTotal: 30,
+  roomCode: null, reconnectTry: 0,
 };
 
 function show(id) {
@@ -147,7 +148,7 @@ function renderGame() {
       <div class="info">
         <div class="nm">${esc(p.name)}${p.isBot ? ' 🤖' : ''}</div>
         <div class="cnt"><b>${cnt}</b> kartu
-          ${st.unoPending === i ? '<span class="uno-flag">UNO!</span>' : ''}
+          ${st.unoPending === i && Date.now() < st.unoDeadline ? '<span class="uno-flag">UNO!</span>' : ''}
           ${st.pendingPlayer === i && st.pendingDraw > 0 ? `<span class="pen">⚠ ${st.pendingDraw}</span>` : ''}
         </div>
       </div>`;
@@ -166,7 +167,8 @@ function renderGame() {
   $('#dir-arrow').textContent = st.dir === 1 ? '↻' : '↺';
   $('#color-dot').className = 'c-dot c-' + (st.activeColor || 'W');
   $('#round-info').textContent = 'Ronde ' + st.round;
-  $('#deck-count').textContent = st.deck.length + ' sisa';
+  const deckLeft = st.deckCount != null ? st.deckCount : (st.deck ? st.deck.length : 0);
+  $('#deck-count').textContent = deckLeft + ' sisa';
 
   const dis = $('#discard');
   dis.innerHTML = '';
@@ -376,16 +378,45 @@ function send(o) { if (App.ws && App.ws.readyState === 1) App.ws.send(JSON.strin
 function connect(then) {
   if (App.ws && App.ws.readyState === 1) { then && then(); return; }
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  App.ws = new WebSocket(`${proto}://${location.host}`);
-  App.ws.onmessage = (e) => { try { onServerMsg(JSON.parse(e.data)); } catch { /* abaikan */ } };
-  App.ws.onopen = () => then && then();
-  App.ws.onclose = () => {
-    if (App.mode === 'online') {
-      App.ws = null; App.st = null; App.lobby = null; App.mode = null;
-      toast('Koneksi terputus');
-      show('screen-home');
+  let ws;
+  try {
+    ws = new WebSocket(`${proto}://${location.host}`);
+  } catch {
+    toast('Tidak bisa membuka koneksi ke server');
+    goHome();
+    return;
+  }
+  App.ws = ws;
+  ws.onmessage = (e) => { try { onServerMsg(JSON.parse(e.data)); } catch { /* abaikan */ } };
+  ws.onopen = () => { App.wsOpened = true; then && then(); };
+  // Server tidak terjangkau: beri tahu pengguna penyebab yang paling mungkin.
+  ws.onerror = () => {
+    if (!App.wsOpened && App.mode !== 'online') {
+      toast('❌ Tidak bisa terhubung ke server! Pastikan: (1) server jalan di PC, (2) HP & PC di WiFi yang sama, (3) firewall mengizinkan Node.js');
     }
   };
+  ws.onclose = () => {
+    App.wsOpened = false;
+    if (App.mode !== 'online') return;
+    // Coba sambung ulang dulu (token ada di sessionStorage, server bisa memulihkan kursi).
+    if (App.roomCode && App.reconnectTry < 3) {
+      App.reconnectTry++;
+      toast(`Koneksi putus — menyambung ulang (${App.reconnectTry}/3)...`);
+      setTimeout(() => {
+        if (App.mode !== 'online') return;
+        connect(() => send({ t: 'join', code: App.roomCode, name: store.name, token: store.token }));
+      }, 1000 * App.reconnectTry);
+      return;
+    }
+    goHome('Koneksi terputus');
+  };
+}
+
+function goHome(message) {
+  App.ws = null; App.st = null; App.lobby = null; App.mode = null;
+  App.roomCode = null; App.reconnectTry = 0;
+  if (message) toast(message);
+  show('screen-home');
 }
 
 function onServerMsg(msg) {
@@ -393,9 +424,16 @@ function onServerMsg(msg) {
     case 'joined':
       store.token = msg.token;
       App.mySeat = msg.seat;
+      App.reconnectTry = 0;
+      break;
+    case 'kicked':
+      goHome(msg.msg || 'Kamu dikeluarkan dari ruang');
       break;
     case 'lobby': {
       App.lobby = msg;
+      App.mode = 'online';
+      App.roomCode = msg.code || App.roomCode;
+      App.reconnectTry = 0;
       App.isHost = msg.hostSeat === App.mySeat;
       const meSeat = (msg.seats || []).find((s) => s && s.seat === App.mySeat);
       if (meSeat) setChips(meSeat.chips);
@@ -405,6 +443,8 @@ function onServerMsg(msg) {
     }
     case 'err':
       toast(msg.msg);
+      // Gagal saat menyambung ulang (ruang sudah hilang / penuh) -> kembali ke menu.
+      if (App.reconnectTry > 0) goHome();
       break;
     default:
       if (msg.players) {
@@ -417,6 +457,7 @@ function onServerMsg(msg) {
         if (Array.isArray(msg.chips)) setChips(msg.chips[App.mySeat]);
         App.st = msg;
         App.mode = 'online';
+        App.reconnectTry = 0;
         App.roundEndShown = false;
         closeModal(true);
         show('screen-game');
@@ -475,6 +516,27 @@ function renderLobby() {
   $('#btn-start').classList.toggle('hidden', !App.isHost);
   $('#btn-start').disabled = count < 2;
   $('#btn-start').textContent = count < 2 ? 'Minimal 2 pemain' : '▶ Mulai Main';
+
+  // Undangan WiFi: QR yang memuat alamat server + kode ruang (teman tinggal scan)
+  const inv = $('#lobby-invite');
+  const urls = (App.isHost && Array.isArray(lb.lanUrls)) ? lb.lanUrls : null;
+  if (urls && urls.length) {
+    inv.classList.remove('hidden');
+    const qrs = $('#invite-qrs');
+    qrs.innerHTML = '';
+    for (const u of urls) {
+      const full = `${u}/?join=${encodeURIComponent(lb.code)}`;
+      const item = document.createElement('a');
+      item.className = 'qr-item';
+      item.href = full;
+      item.innerHTML = `<img src="/qr?text=${encodeURIComponent(full)}" alt="QR undangan">
+        <b>${esc(u.replace('http://', ''))}</b>
+        <span>scan → isi nama → Gabung</span>`;
+      qrs.appendChild(item);
+    }
+  } else {
+    inv.classList.add('hidden');
+  }
 }
 
 /* ---------- ronde selesai ---------- */
@@ -526,12 +588,16 @@ function roundEndModal(st) {
 /* ---------- keluar ---------- */
 function leaveGame() {
   clearTimers();
-  if (App.mode === 'online') {
+  const wasOnline = App.mode === 'online';
+  App.mode = null;            // set dulu supaya onclose tidak memicu sambung ulang
+  App.roomCode = null;
+  App.reconnectTry = 0;
+  if (wasOnline) {
     send({ t: 'leave' });
     try { App.ws && App.ws.close(); } catch { }
     App.ws = null;
   }
-  App.st = null; App.lobby = null; App.mode = null; App.roundEndShown = false;
+  App.st = null; App.lobby = null; App.roundEndShown = false;
   closeModal(true);
   updateChipsUI();
   show('screen-home');
@@ -586,6 +652,8 @@ function init() {
     ensureName();
     const code = $('#inp-code').value.trim().toUpperCase();
     if (code.length < 4) { toast('Kode ruang harus 4 huruf'); return; }
+    App.roomCode = code;
+    App.reconnectTry = 0;
     connect(() => send({ t: 'join', code, name: store.name, chips: store.chips, token: store.token }));
   };
   $('#btn-local').onclick = () => {
@@ -631,6 +699,15 @@ function init() {
   };
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || ['localhost', '127.0.0.1'].includes(location.hostname))) {
     navigator.serviceWorker.register('/sw.js').catch(() => { });
+  }
+
+  // Hasil scan QR undangan: /?join=KODE -> langsung ke layar gabung dengan kode terisi
+  const joinCode = (new URLSearchParams(location.search).get('join') || '').trim().toUpperCase();
+  if (/^[A-Z0-9]{4}$/.test(joinCode)) {
+    ensureName();
+    $('#inp-code').value = joinCode;
+    show('screen-join');
+    toast('Kode ruang terisi — isi namamu lalu tekan Gabung');
   }
 }
 init();

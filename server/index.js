@@ -3,17 +3,44 @@
 // Mode online (kode ruang) & WiFi lokal/hotspot lewat server ini.
 // ============================================================
 import http from 'node:http';
-import { readFileSync, existsSync, statSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { randomBytes } from 'node:crypto';
+import { exec } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
+import QRCode from 'qrcode';
 import * as uno from '../shared/uno.js';
 import { botAction } from '../shared/bot.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
 const PORT = process.env.PORT || 3000;
+const MAX_MSG_BYTES = 64 * 1024;
+
+// Biar satu error aneh tidak menjatuhkan seluruh server (semua ruang ikut mati).
+process.on('uncaughtException', (e) => console.error('uncaughtException:', e));
+process.on('unhandledRejection', (e) => console.error('unhandledRejection:', e));
+
+// Alamat WiFi asli — buang adapter virtual (VirtualBox/WSL/Docker/VMware/Loopback dll)
+// supaya pemilik PC tidak salah memberi IP ke temannya. Wi-Fi diprioritaskan di atas Ethernet.
+function lanUrls() {
+  const out = [];
+  for (const [name, list] of Object.entries(os.networkInterfaces())) {
+    if (/virtual|vbox|vmware|hyper-v|wsl|docker|loopback|bluetooth/i.test(name)) continue;
+    for (const net of list || []) {
+      if (net.family === 'IPv4' && !net.internal) {
+        out.push({ name, url: `http://${net.address}:${PORT}` });
+      }
+    }
+  }
+  out.sort((a, b) => {
+    const w = (x) => (/wi-?fi|wireless|nirkabel/i.test(x.name) ? 0 : 1);
+    return w(a) - w(b);
+  });
+  return out.map((x) => x.url);
+}
 
 // ---------- server statis ----------
 const MIME = {
@@ -26,21 +53,55 @@ const MIME = {
   '.ico': 'image/x-icon',
   '.json': 'application/json',
 };
-const server = http.createServer((req, res) => {
-  let urlPath = decodeURIComponent(req.url.split('?')[0]);
+const server = http.createServer(async (req, res) => {
+  let urlPath;
+  try {
+    // URL dengan escape rusak (mis. GET /%) HARUS tidak mematikan server.
+    urlPath = decodeURIComponent((req.url || '/').split('?')[0]);
+  } catch {
+    res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Bad request');
+    return;
+  }
+  // QR code undangan (dipakai lobby untuk di-scan teman di WiFi yang sama)
+  if (urlPath === '/qr') {
+    const text = new URL(req.url, 'http://localhost').searchParams.get('text') || '';
+    if (!text || text.length > 300) { res.writeHead(400); res.end('Bad text'); return; }
+    try {
+      const svg = await QRCode.toString(text, { type: 'svg', margin: 1, errorCorrectionLevel: 'L' });
+      res.writeHead(200, { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=3600' });
+      res.end(svg);
+    } catch {
+      res.writeHead(500); res.end('QR gagal');
+    }
+    return;
+  }
   if (urlPath === '/') urlPath = '/index.html';
   // /shared/ dipetakan ke folder shared di root (engine dipakai bersama klien)
-  const base = urlPath.startsWith('/shared/') ? ROOT : path.join(ROOT, 'public');
-  const allowed = urlPath.startsWith('/shared/') ? path.join(ROOT, 'shared') : path.join(ROOT, 'public');
+  const isShared = urlPath === '/shared' || urlPath.startsWith('/shared/');
+  const base = isShared ? ROOT : path.join(ROOT, 'public');
+  const allowed = isShared ? path.join(ROOT, 'shared') : path.join(ROOT, 'public');
   const file = path.normalize(path.join(base, urlPath));
-  if (!file.startsWith(allowed) || !existsSync(file) || !statSync(file).isFile()) {
+  // Cek path traversal dengan relative path (lebih aman dari startsWith biasa)
+  const rel = path.relative(allowed, file);
+  if (rel.startsWith('..') || path.isAbsolute(rel) || rel.split(path.sep).includes('..')) {
     res.writeHead(404); res.end('Not found'); return;
   }
-  res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
+  let info;
+  try {
+    info = statSync(file);
+  } catch {
+    res.writeHead(404); res.end('Not found'); return;
+  }
+  if (!info.isFile()) { res.writeHead(404); res.end('Not found'); return; }
+  res.writeHead(200, {
+    'Content-Type': MIME[path.extname(file)] || 'application/octet-stream',
+    'X-Content-Type-Options': 'nosniff',
+  });
   res.end(readFileSync(file));
 });
 
-// ---------- room ----------
+// ---------- util ----------
 const rooms = new Map();
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 function makeCode() {
@@ -51,6 +112,8 @@ function makeCode() {
   return code;
 }
 
+function randomToken() { return randomBytes(9).toString('base64url'); }
+
 function defaultSettings() {
   return {
     stacking: true, jumpIn: true, sevenZero: true, extreme: true,
@@ -58,12 +121,34 @@ function defaultSettings() {
   };
 }
 
+const RULE_KEYS = ['stacking', 'jumpIn', 'sevenZero', 'extreme'];
+const ACTION_TYPES = new Set(['play', 'jump', 'counter', 'swap', 'draw', 'keep', 'uno', 'catch']);
+
+const clampInt = (v, min, max, dflt) => {
+  const n = Math.floor(Number(v));
+  return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : dflt;
+};
+
+// Klien tidak dipercaya: hanya key yang dikenal, dengan tipe & rentang wajar.
+function applySettings(target, patch) {
+  if (!patch || typeof patch !== 'object') return;
+  for (const k of RULE_KEYS) if (typeof patch[k] === 'boolean') target[k] = patch[k];
+  if ('ante' in patch) target.ante = clampInt(patch.ante, 0, 1_000_000, target.ante);
+  if ('turnTime' in patch) target.turnTime = clampInt(patch.turnTime, 0, 600, target.turnTime);
+  if ('maxPlayers' in patch) target.maxPlayers = clampInt(patch.maxPlayers, 2, 10, target.maxPlayers);
+}
+
+function cleanName(n, fallback) {
+  const s = String(n ?? '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 16);
+  return s || fallback;
+}
+
 class Room {
-  constructor(hostSeat) {
+  constructor() {
     this.code = makeCode();
     this.hostSeat = 0;
     this.settings = defaultSettings();
-    this.seats = [hostSeat]; // { token, name, chips, socket, isBot, connected, seat }
+    this.seats = []; // { token, name, chips, socket, isBot, connected, seat }
     this.game = null;
     this.turnTimer = null;
     this.botTimer = null;
@@ -78,6 +163,30 @@ class Room {
   }
 
   seatCount() { return this.seats.filter(Boolean).length; }
+
+  // Buang "lubang" kursi supaya indeks kursi selalu sejajar dengan indeks pemain di
+  // state permainan. Hanya boleh dipakai saat belum ada game yang jalan.
+  compactSeats() {
+    const kept = this.seats.filter(Boolean);
+    if (kept.length === this.seats.length) return false;
+    const prevHost = this.seats[this.hostSeat];
+    this.seats = kept;
+    kept.forEach((s, i) => { s.seat = i; });
+    this.hostSeat = prevHost && kept.includes(prevHost) ? prevHost.seat : -1;
+    // Nomor kursi klien ikut bergeser -> beri tahu mereka.
+    for (const s of kept) if (s.socket) this.sendTo(s, { t: 'joined', token: s.token, seat: s.seat });
+    this.reassignHost();
+    return true;
+  }
+
+  // Pastikan selalu ada tuan rumah yang benar-benar terhubung (host kabur = ruang mati).
+  reassignHost() {
+    const cur = this.seats[this.hostSeat];
+    if (cur && cur.connected && !cur.isBot) return;
+    const next = this.seats.find((s) => s && s.connected && !s.isBot);
+    if (next) this.hostSeat = next.seat;
+    else if (cur) this.hostSeat = cur.seat;
+  }
 
   broadcast() {
     for (const s of this.seats) {
@@ -107,6 +216,7 @@ class Room {
       code: this.code,
       hostSeat: this.hostSeat,
       settings: this.settings,
+      lanUrls: lanUrls(), // untuk QR undangan di lobby
       seats: this.seats.map((s, i) => s && ({
         seat: i, name: s.name, chips: s.chips, isBot: s.isBot, connected: s.connected,
       })),
@@ -226,11 +336,12 @@ class Room {
   }
 
   startGame() {
+    if (this.game) return false; // jangan mulai ulang di tengah permainan
+    this.compactSeats();         // buang lubang kursi dulu (kalau ada yang keluar)
     if (this.seatCount() < 2) return false;
-    const players = this.seats.map((s) => s && ({ name: s.name, isBot: s.isBot, token: s.token }));
+    const players = this.seats.map((s) => ({ name: s.name, isBot: s.isBot, token: s.token }));
     this.game = uno.newGame({ players });
     uno.startRound(this.game);
-    this.lastDeltas = null;
     this.scheduleNext();
     return true;
   }
@@ -238,7 +349,6 @@ class Room {
   nextRound() {
     if (!this.game || this.game.phase !== 'roundEnd') return;
     uno.startRound(this.game);
-    this.lastDeltas = null;
     this.scheduleNext();
   }
 
@@ -250,21 +360,27 @@ class Room {
 }
 
 function getOrCreateSeat(room, { name, chips, token, isBot = false, socket = null }) {
-  // reconnect dengan token
+  // reconnect/ambil alih kursi dengan token
   if (token) {
     const existing = room.seats.find((s) => s && s.token === token);
     if (existing) {
+      // Tutup soket lama supaya satu kursi hanya dipegang satu koneksi.
+      if (existing.socket && existing.socket !== socket) {
+        try { existing.socket.close(); } catch { /* sudah mati */ }
+      }
       existing.socket = socket;
       existing.connected = true;
-      if (!isBot) existing.name = name || existing.name;
+      if (!isBot) existing.name = cleanName(name, existing.name);
       return existing;
     }
   }
   const idx = room.freeSeatIndex();
   if (idx < 0) return null;
   const seat = {
-    seat: idx, token: token || ('tk_' + Math.random().toString(36).slice(2, 12)),
-    name: name || 'Pemain' + (idx + 1), chips: Number.isFinite(chips) ? chips : room.settings.startingChips,
+    seat: idx,
+    token: token || ('tk_' + randomToken()),
+    name: cleanName(name, 'Pemain' + (idx + 1)),
+    chips: Number.isFinite(chips) ? Math.max(0, Math.min(1e9, Math.floor(chips))) : room.settings.startingChips,
     socket, isBot, connected: true,
   };
   room.seats[idx] = seat;
@@ -272,26 +388,46 @@ function getOrCreateSeat(room, { name, chips, token, isBot = false, socket = nul
 }
 
 // ---------- websocket ----------
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({ server, maxPayload: MAX_MSG_BYTES });
+
+// Deteksi koneksi mati (mis. jaringan putus tanpa FIN) supaya kursi tidak "hantu".
+const heartbeat = setInterval(() => {
+  for (const ws of wss.clients) {
+    if (ws.isAlive === false) { ws.terminate(); continue; }
+    ws.isAlive = false;
+    try { ws.ping(); } catch { /* sudah mati */ }
+  }
+}, 30_000);
+wss.on('close', () => clearInterval(heartbeat));
 
 wss.on('connection', (ws) => {
   let bound = null; // { room, seat }
+  ws.isAlive = true;
+
+  ws.on('pong', () => { ws.isAlive = true; });
+  ws.on('error', () => { /* jangan biarkan error soket menjatuhkan proses */ });
 
   ws.on('message', (raw) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
-    handle(ws, msg);
+    if (!msg || typeof msg !== 'object') return;
+    try {
+      handle(ws, msg);
+    } catch (e) {
+      console.error('kesalahan menangani pesan:', e?.message || e);
+    }
   });
 
   ws.on('close', () => {
     if (!bound) return;
     const { room, seat } = bound;
-    seat.socket = null;
-    seat.connected = false;
-    if (room.game) {
-      room.broadcast();
-      room.scheduleNext(); // timer tetap jalan; disconnected akan di-auto draw
+    if (room.seats[seat.seat] === seat) {
+      seat.socket = null;
+      seat.connected = false;
     }
+    room.reassignHost();
+    room.broadcast();
+    if (room.game && room.game.phase === 'playing') room.scheduleNext();
     // hapus room kalau kosong
     clearTimeout(room.closeTimer);
     room.closeTimer = setTimeout(() => {
@@ -301,17 +437,18 @@ wss.on('connection', (ws) => {
   });
 
   function handle(ws2, msg) {
-    const reply = (payload) => { try { ws2.send(JSON.stringify(payload)); } catch { } };
+    const reply = (payload) => { try { ws2.send(JSON.stringify(payload)); } catch { /* putus */ } };
 
     switch (msg.t) {
       case 'create': {
-        const room = new Room(null);
+        const room = new Room();
         const seat = getOrCreateSeat(room, {
           name: msg.name, chips: msg.chips, token: msg.token, socket: ws2,
         });
+        if (!seat) { reply({ t: 'err', msg: 'Tidak bisa membuat ruang' }); break; }
         room.hostSeat = seat.seat;
+        if (msg.settings) applySettings(room.settings, msg.settings);
         rooms.set(room.code, room);
-        if (msg.settings) Object.assign(room.settings, msg.settings);
         bound = { room, seat };
         reply({ t: 'joined', token: seat.token, seat: seat.seat });
         room.broadcast();
@@ -320,11 +457,14 @@ wss.on('connection', (ws) => {
       case 'join': {
         const room = rooms.get(String(msg.code || '').toUpperCase());
         if (!room) { reply({ t: 'err', msg: 'Ruang tidak ditemukan' }); break; }
-        const seat = getOrCreateSeat(room, {
-          name: msg.name, chips: msg.chips, token: msg.token, socket: ws2,
-        });
+        const token = typeof msg.token === 'string' ? msg.token : null;
+        const existing = token ? room.seats.find((s) => s && s.token === token) : null;
+        // Jangan biarkan pemain baru "nyempil" di tengah permainan yang sudah jalan.
+        if (room.game && !existing) { reply({ t: 'err', msg: 'Permainan sedang berjalan' }); break; }
+        const seat = getOrCreateSeat(room, { name: msg.name, chips: msg.chips, token, socket: ws2 });
         if (!seat) { reply({ t: 'err', msg: 'Ruang penuh' }); break; }
         bound = { room, seat };
+        room.reassignHost();
         reply({ t: 'joined', token: seat.token, seat: seat.seat });
         room.broadcast();
         break;
@@ -336,8 +476,8 @@ wss.on('connection', (ws) => {
 
         switch (msg.t) {
           case 'settings':
-            if (seat.seat !== room.hostSeat || (g && g.phase === 'playing')) return;
-            Object.assign(room.settings, msg.patch || {});
+            if (seat.seat !== room.hostSeat || room.game) return;
+            applySettings(room.settings, msg.patch);
             room.broadcast();
             break;
           case 'addBot': {
@@ -347,16 +487,24 @@ wss.on('connection', (ws) => {
             room.broadcast();
             break;
           }
-          case 'kick':
+          case 'kick': {
             if (seat.seat !== room.hostSeat || room.game) return;
-            if (msg.seat !== undefined && room.seats[msg.seat] && !room.seats[msg.seat].isBot) {
-              room.seats[msg.seat].socket = null;
-              room.seats[msg.seat] = null;
+            const victim = room.seats[msg.seat];
+            if (victim && !victim.isBot && victim !== seat) {
+              if (victim.socket) {
+                try {
+                  victim.socket.send(JSON.stringify({ t: 'kicked', msg: 'Kamu dikeluarkan oleh tuan rumah' }));
+                  victim.socket.close();
+                } catch { /* sudah mati */ }
+              }
+              room.seats[victim.seat] = null;
+              room.compactSeats();
               room.broadcast();
             }
             break;
+          }
           case 'start':
-            if (seat.seat !== room.hostSeat) return;
+            if (seat.seat !== room.hostSeat || room.game) return;
             if (!room.startGame()) reply({ t: 'err', msg: 'Minimal 2 pemain (tambah bot bila kurang)' });
             break;
           case 'next':
@@ -364,17 +512,37 @@ wss.on('connection', (ws) => {
             room.nextRound();
             break;
           case 'action': {
+            const act = msg.action;
             if (!g || g.phase !== 'playing') return;
-            if (g.turn !== seat.seat && !isPassiveAction(msg.action)) return;
-            uno.applyAction(g, seat.seat, msg.action);
+            if (!act || typeof act.t !== 'string' || !ACTION_TYPES.has(act.t)) return;
+            if (seat.seat >= g.players.length) return;
+            if (g.turn !== seat.seat && !isPassiveAction(act)) return;
+            uno.applyAction(g, seat.seat, act);
             room.afterAction();
             break;
           }
-          case 'leave':
-            room.seats[seat.seat] = null;
+          case 'leave': {
+            if (room.seats[seat.seat] === seat) {
+              if (g) {
+                // Jangan sisakan lubang di tengah permainan: kursi ini lanjut sebagai bot
+                // supaya ronde tetap bisa selesai wajar.
+                seat.isBot = true;
+                seat.connected = false;
+                seat.socket = null;
+                seat.token = null;
+                const gp = g.players[seat.seat];
+                if (gp) { gp.isBot = true; gp.name = `${gp.name} (bot)`; }
+              } else {
+                room.seats[seat.seat] = null;
+                room.compactSeats();
+              }
+            }
             bound = null;
+            room.reassignHost();
             room.broadcast();
+            if (room.game && room.game.phase === 'playing') room.scheduleNext();
             break;
+          }
         }
       }
     }
@@ -390,15 +558,31 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log('  UNO CHIPS — server siap!');
   console.log('========================================');
   console.log(`Komputer ini     : http://localhost:${PORT}`);
-  const nets = os.networkInterfaces();
-  for (const list of Object.values(nets)) {
-    for (const net of list || []) {
-      if (net.family === 'IPv4' && !net.internal) {
-        console.log(`HP di WiFi sama  : http://${net.address}:${PORT}`);
-      }
-    }
+  const urls = lanUrls();
+  if (urls.length) {
+    for (const u of urls) console.log(`HP di WiFi sama  : ${u}`);
+  } else {
+    console.log('(Tidak ada adapter WiFi/LAN terdeteksi — cek koneksi jaringan)');
   }
   console.log('----------------------------------------');
-  console.log('Mode WiFi lokal/hotspot: jalankan server ini,');
+  console.log('Mode WiFi lokal/hotspot: jalankan server ini (atau start-server.bat),');
   console.log('lalu buka alamat "HP di WiFi sama" di browser teman-temanmu.');
+  console.log('Di dalam lobby ada QR code — teman tinggal scan, tidak perlu ketik alamat.');
+
+  // Windows: cek firewall Node.exe (penyebab #1 HP tidak bisa konek ke PC)
+  if (process.platform === 'win32') {
+    const ps = "Get-NetFirewallApplicationFilter | Where-Object { $_.Program -eq '" +
+      process.execPath.replace(/'/g, "''") +
+      "' } | Get-NetFirewallRule | Where-Object { $_.Direction -eq 'Inbound' -and $_.Action -eq 'Allow' -and $_.Enabled -eq 'True' } | Measure-Object | Select-Object -ExpandProperty Count";
+    exec(`powershell -NoProfile -Command "${ps}"`, { timeout: 20_000 }, (err, stdout) => {
+      const n = parseInt(String(stdout).trim(), 10);
+      if (!err && n === 0) {
+        console.log('');
+        console.log('⚠  PENTING: Firewall Windows belum mengizinkan Node.exe diakses dari jaringan.');
+        console.log('   HP temanmu kemungkinan TIDAK BISA membuka server ini.');
+        console.log('   Jalankan SEKALI di Command Prompt (Run as Administrator):');
+        console.log(`   netsh advfirewall firewall add rule name="UNO Chips" dir=in action=allow program="${process.execPath}" enable=yes`);
+      }
+    });
+  }
 });

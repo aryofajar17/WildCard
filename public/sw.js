@@ -1,5 +1,7 @@
-// Service worker UNO Chips — cache app-shell agar bisa dibuka offline (mode vs bot)
-const CACHE = 'uno-chips-v2';
+// Service worker UNO Chips — cache hanya cadangan offline (network-first)
+// Network-first supaya update kode langsung terpakai saat online; kalau offline,
+// barulah cache dipakai (mode vs bot tetap jalan tanpa internet).
+const CACHE = 'uno-chips-v3';
 const ASSETS = [
   '/', '/index.html', '/css/style.css', '/js/app.js',
   '/shared/uno.js', '/shared/bot.js', '/icon.svg', '/manifest.webmanifest',
@@ -21,11 +23,14 @@ self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
   if (url.origin !== location.origin) return;
+  // Coba jaringan dulu; gagal (offline) -> pakai cache
   e.respondWith(
-    caches.match(e.request).then((hit) => hit || fetch(e.request).then((res) => {
+    fetch(e.request).then((res) => {
       const copy = res.clone();
       caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});
       return res;
-    }).catch(() => caches.match('/index.html'))),
+    }).catch(() =>
+      caches.match(e.request).then((hit) => hit || caches.match('/index.html')),
+    ),
   );
 });

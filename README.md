@@ -31,8 +31,11 @@ Butuh [Node.js](https://nodejs.org) 18+.
 
 ```bash
 npm install
-npm start
+npm start        # atau: klik start-server.bat (Windows, auto-restart)
 ```
+
+> **Penting untuk main WiFi**: gunakan `start-server.bat` dan biarkan jendelanya terbuka —
+> server mati = semua ruang hilang dan HP teman tidak bisa konek (penyebab paling sering).
 
 Server otomatis mencetak alamat yang bisa dibuka:
 
@@ -42,14 +45,26 @@ HP di WiFi sama  : http://192.168.x.x:3000
 ```
 
 ### Main via WiFi lokal / hotspot (tanpa internet)
-1. Jalankan `npm start` di salah satu laptop/PC (atau HP yang bisa menjalankan Node).
+1. Jalankan **`start-server.bat`** (Windows, cara paling mudah) atau `npm start` di salah satu laptop/PC.
+   - `start-server.bat` otomatis membuka browser dan **menyalakan ulang server** kalau crash.
+   - **Biarkan jendela hitamnya terbuka** — menutupnya = mematikan server.
 2. Sambungkan semua HP ke WiFi/hotspot yang sama.
-3. Semua buka alamat `http://192.168.x.x:3000` (tercetak di console server).
-4. Satu orang **Buat Ruang** → bagikan kode → yang lain **Gabung Ruang**.
-5. Kalau pemain kurang, tuan rumah bisa **Tambah Bot**.
+3. Di lobby, **scan QR code** yang tampil (atau buka alamat `http://192.168.x.x:3000` yang tercetak di console).
+   QR sudah memuat kode ruang — teman tinggal isi nama → Gabung.
+4. Kalau pemain kurang, tuan rumah bisa **Tambah Bot**.
 
-> Tips Windows: kalau HP tidak bisa mengakses, izinkan Node.js di Windows Defender Firewall
-> (Biasanya muncul dialog saat pertama kali menjalankan server — centang "Jaringan privat").
+#### HP tidak bisa connect? Cek urut ini:
+| Gejala | Penyebab | Solusi |
+|---|---|---|
+| Halaman tidak terbuka sama sekali | **Server mati / terminal tertutup** | Jalankan `start-server.bat`, biarkan terbuka |
+| Halaman tidak terbuka, server jalan | **Firewall Windows memblokir Node.js** | Saat server start, console memberi tahu. Jalankan perintah `netsh ...` yang dicetak di console (CMD as Administrator), sekali saja |
+| Halaman tidak terbuka, firewall aman | Pakai **IP adapter virtual** (VirtualBox/WSL) | Pakai IP yang tercetak di console versi terbaru (adapter virtual sudah difilter). Di lobby ada QR — scan saja |
+| Halaman terbuka tapi "Ruang tidak ditemukan" | HP buka alamat server yang **berbeda** / server di-restart | Semua harus buka alamat yang sama; server di-restart = ruang lama hilang, buat ruang baru |
+| Halaman terbuka tapi tidak bisa apa-apa di hotspot HP | **AP isolation** (perangkat saling terisolasi) | Cek pengaturan hotspot; coba WiFi router biasa |
+| "Tidak bisa terhubung ke server" muncul | koneksi WS gagal | sama dengan di atas — app kini menampilkan toast ini otomatis |
+
+> Cek firewall: saat server start di Windows, console otomatis memeriksa apakah Node.exe sudah
+> diizinkan dari jaringan. Kalau belum, perintah perbaikannya dicetak langsung di console.
 
 ### Main online dengan teman jauh
 Server ini perlu di-host agar bisa diakses dari internet. Pilihan mudah:
