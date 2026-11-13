@@ -389,6 +389,9 @@ function getOrCreateSeat(room, { name, chips, token, isBot = false, socket = nul
 
 // ---------- websocket ----------
 const wss = new WebSocketServer({ server, maxPayload: MAX_MSG_BYTES });
+// ws meneruskan error server ke objek wss via emit('error') — tanpa listener ini,
+// emit meledak "Unhandled 'error' event" dan memutus rantai error server lain.
+wss.on('error', handleListenError);
 
 // Deteksi koneksi mati (mis. jaringan putus tanpa FIN) supaya kursi tidak "hantu".
 const heartbeat = setInterval(() => {
@@ -561,7 +564,27 @@ wss.on('connection', (ws) => {
   }
 });
 
-server.listen(PORT, '0.0.0.0', () => {
+// Port bentrok (mis. server lain masih jalan): beri pesan jelas, bukan stack trace
+// tanpa proses zombie. EADDRINUSE bisa datang lewat event 'error' ATAU lemparan
+// sinkron dari listen() tergantung platform — dua-duanya ditangani di sini.
+function handleListenError(err) {
+  if (err && err.code === 'EADDRINUSE') {
+    console.error('');
+    console.error('❌ Port ' + PORT + ' sudah dipakai — kemungkinan server WILD CARD lain masih jalan.');
+    console.error('   Pilih salah satu:');
+    console.error('   1. Pakai server yang sudah jalan: buka http://localhost:' + PORT);
+    console.error('   2. Matikan instance lain (tutup jendela start-server.bat / Ctrl+C), lalu jalankan lagi');
+    console.error('   3. Pakai port lain  ->  PowerShell: $env:PORT=3001; npm start');
+    console.error('');
+    process.exit(1);
+  }
+  console.error('Server error:', err);
+  process.exit(1);
+}
+server.on('error', handleListenError);
+
+try {
+  server.listen(PORT, '0.0.0.0', () => {
   console.log('========================================');
   console.log('  WILD CARD — server siap!');
   console.log('========================================');
@@ -594,3 +617,6 @@ server.listen(PORT, '0.0.0.0', () => {
     });
   }
 });
+} catch (err) {
+  handleListenError(err);
+}
