@@ -23,7 +23,7 @@ const KIND_ORDER = { num: 0, skip: 1, rev: 2, d2: 3, wild: 5, d4: 6, counter: 7,
 const store = {
   get name() { return localStorage.getItem('uno_name') || ''; },
   set name(v) { localStorage.setItem('uno_name', v); },
-  get chips() { return parseInt(localStorage.getItem('uno_chips') || '5000', 10) || 0; },
+  get chips() { return parseInt(localStorage.getItem('uno_chips') || '0', 10) || 0; },
   set chips(v) { localStorage.setItem('uno_chips', String(v)); },
   // token identitas per-tab (sessionStorage): dua tab di browser yang sama = dua pemain berbeda
   get token() { return sessionStorage.getItem('uno_token') || null; },

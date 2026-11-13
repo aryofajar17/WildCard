@@ -117,7 +117,7 @@ function randomToken() { return randomBytes(9).toString('base64url'); }
 function defaultSettings() {
   return {
     stacking: true, jumpIn: true, sevenZero: true, extreme: true,
-    ante: 100, turnTime: 30, maxPlayers: 6, startingChips: 5000,
+    ante: 100, turnTime: 30, maxPlayers: 6, startingChips: 0,
   };
 }
 
