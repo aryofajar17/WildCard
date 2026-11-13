@@ -698,7 +698,13 @@ function init() {
     catch { toast('Kode ruang: ' + code); }
   };
 
-  document.querySelectorAll('[data-back]').forEach((b) => { b.onclick = () => { if (!App.mode) show('screen-home'); }; });
+  document.querySelectorAll('[data-back]').forEach((b) => {
+    b.onclick = () => {
+      // Di dalam ruang (lobby online): ← berarti keluar ruang, balik ke menu utama.
+      if (App.mode === 'online') { leaveGame(); return; }
+      show('screen-home');
+    };
+  });
 
   // PWA
   window.addEventListener('beforeinstallprompt', (e) => {
