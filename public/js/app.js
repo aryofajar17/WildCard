@@ -652,8 +652,12 @@ function init() {
   $('#btn-topup').onclick = () => { store.chips += 5000; updateChipsUI(); toast('🎁 +5.000 chip gratis ditambahkan!'); };
 
   $('#btn-create').onclick = () => { ensureName(); show('screen-create'); };
+  // Chip selalu mulai dari 0 setiap kali masuk ke dalam game (buang/gabung ruang).
+  // Saldo lama tidak terbawa; chip hanya berlaku selama sesi meja tersebut.
+  const masukDenganChipNol = () => { store.chips = 0; updateChipsUI(); };
   $('#btn-create-go').onclick = () => {
     ensureName();
+    masukDenganChipNol();
     const settings = {
       ...App.createRules,
       ante: +$('#sel-ante').value,
@@ -667,6 +671,7 @@ function init() {
     ensureName();
     const code = $('#inp-code').value.trim().toUpperCase();
     if (code.length < 4) { toast('Kode ruang harus 4 huruf'); return; }
+    masukDenganChipNol();
     App.roomCode = code;
     App.reconnectTry = 0;
     connect(() => send({ t: 'join', code, name: store.name, chips: store.chips, token: store.token }));
