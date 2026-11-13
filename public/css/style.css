@@ -2,10 +2,12 @@
    UNO Chips - CSS mobile-first
    ============================================================ */
 :root {
+  color-scheme: dark;       /* popup native (dropdown/scrollbar) ikut gelap, bukan putih */
   --bg: #14082a;
   --bg2: #1f0f3d;
   --panel: rgba(255, 255, 255, 0.07);
   --panel-brd: rgba(255, 255, 255, 0.14);
+  --field-bg: #251243;      /* latar solid untuk input/select — jangan transparan */
   --txt: #f4eeff;
   --muted: #b9a8d8;
   --accent: #ffb020;
@@ -84,8 +86,13 @@ body {
 .field span { display: block; font-size: 13px; color: var(--muted); margin: 0 0 4px 4px; }
 .field input, .field select {
   width: 100%; padding: 13px 14px; border-radius: 12px;
-  border: 2px solid var(--panel-brd); background: var(--panel); color: var(--txt);
+  border: 2px solid var(--panel-brd); background: var(--field-bg); color: var(--txt);
   font-size: 16px; outline: none;
+}
+/* popup dropdown native: latar solid gelap supaya teks selalu terbaca */
+.field select option, .field input option {
+  background: var(--field-bg);
+  color: var(--txt);
 }
 .field input:focus, .field select:focus { border-color: var(--accent); }
 .disclaimer { text-align: center; color: var(--muted); font-size: 11px; margin-top: 10px; opacity: 0.8; }
