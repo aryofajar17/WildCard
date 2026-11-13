@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#14082a">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icon.svg">
+  <title>UNO Chips</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ============ HOME ============ -->
+  <section id="screen-home" class="screen">
+    <div class="home-wrap">
+      <div class="brand">
+        <div class="brand-card"><span>UNO</span></div>
+        <h1>UNO <em>CHIPS</em></h1>
+        <p class="tagline">Main UNO bareng teman · chip virtual</p>
+      </div>
+      <div class="chip-badge">🪙 <b id="home-chips">0</b></div>
+      <label class="field">
+        <span>Nama kamu</span>
+        <input id="inp-name" maxlength="14" placeholder="Nama pemain" autocomplete="off">
+      </label>
+      <button class="btn btn-accent" id="btn-create">🏠 Buat Ruang (kode)</button>
+      <button class="btn btn-primary" id="btn-join">🔗 Gabung Ruang</button>
+      <button class="btn btn-outline" id="btn-local">🤖 Latihan vs Bot</button>
+      <button class="btn btn-ghost hidden" id="btn-install">📲 Install aplikasi</button>
+      <button class="btn btn-ghost" id="btn-topup">🎁 Isi ulang chip gratis +5.000</button>
+      <p class="disclaimer">Chip 100% virtual untuk hiburan — tidak ada uang asli di aplikasi ini.</p>
+    </div>
+  </section>
+
+  <!-- ============ CREATE ============ -->
+  <section id="screen-create" class="screen hidden">
+    <header class="sub-head">
+      <button class="btn-back" data-back>←</button>
+      <h2>Aturan Ruang</h2>
+    </header>
+    <div class="form">
+      <div id="create-toggles"></div>
+      <div class="form-row">
+        <label class="field"><span>Taruhan / ronde</span>
+          <select id="sel-ante">
+            <option value="50">50 chip</option>
+            <option value="100" selected>100 chip</option>
+            <option value="250">250 chip</option>
+            <option value="500">500 chip</option>
+          </select>
+        </label>
+        <label class="field"><span>Waktu giliran</span>
+          <select id="sel-turntime">
+            <option value="15">15 detik</option>
+            <option value="30" selected>30 detik</option>
+            <option value="60">60 detik</option>
+            <option value="0">Tanpa batas</option>
+          </select>
+        </label>
+      </div>
+      <div class="form-row">
+        <label class="field"><span>Maks pemain</span>
+          <select id="sel-maxp">
+            <option>2</option><option>3</option><option>4</option>
+            <option selected>5</option><option>6</option>
+          </select>
+        </label>
+      </div>
+      <button id="btn-create-go" class="btn btn-accent big">Buat & Bagikan Kode</button>
+    </div>
+  </section>
+
+  <!-- ============ JOIN ============ -->
+  <section id="screen-join" class="screen hidden">
+    <header class="sub-head">
+      <button class="btn-back" data-back>←</button>
+      <h2>Gabung Ruang</h2>
+    </header>
+    <div class="form center">
+      <p class="hint">Minta kode 4 huruf dari temanmu</p>
+      <input id="inp-code" maxlength="4" placeholder="KODE" autocomplete="off" autocapitalize="characters">
+      <button id="btn-join-go" class="btn btn-primary big">Gabung</button>
+    </div>
+  </section>
+
+  <!-- ============ LOBBY ============ -->
+  <section id="screen-lobby" class="screen hidden">
+    <header class="sub-head">
+      <button class="btn-back" data-back>←</button>
+      <h2>Lobby</h2>
+    </header>
+    <div class="lobby-wrap">
+      <div class="code-box">
+        <span>KODE RUANG</span>
+        <b id="lobby-code">----</b>
+        <button id="btn-copy" class="btn btn-ghost small">📋 Salin</button>
+      </div>
+      <div id="lobby-players"></div>
+      <button id="btn-addbot" class="btn btn-outline">🤖 Tambah Bot</button>
+      <div id="lobby-settings" class="settings-list"></div>
+      <div class="lobby-actions">
+        <button id="btn-leave" class="btn btn-ghost">Keluar</button>
+        <button id="btn-start" class="btn btn-accent big">▶ Mulai Main</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ GAME ============ -->
+  <section id="screen-game" class="screen hidden">
+    <div id="opponents"></div>
+    <div id="center">
+      <div class="center-meta">
+        <span id="dir-arrow">↻</span>
+        <span id="color-dot" class="c-dot c-R"></span>
+        <span id="round-info"></span>
+      </div>
+      <div class="piles">
+        <div id="draw-pile">
+          <div class="card back"><span>UNO</span></div>
+          <b id="deck-count">0</b>
+        </div>
+        <div id="discard"></div>
+      </div>
+      <div id="banner"></div>
+      <div id="log-line"></div>
+      <div id="timer-wrap"><div id="timer-fill"></div></div>
+    </div>
+    <div id="action-bar"></div>
+    <div id="hand"></div>
+  </section>
+</div>
+
+<div id="modal-root" class="hidden"></div>
+<div id="toast" class="hidden"></div>
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>
