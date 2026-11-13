@@ -1,6 +1,6 @@
-# 🃏 UNO Chips
+# 🃏 WILD CARD
 
-Aplikasi mobile (PWA) untuk main UNO bareng teman dengan **chip virtual** — tanpa uang asli.
+Aplikasi mobile (PWA) untuk adu strategi game kartu UNO bareng teman dengan **chip virtual** — tanpa uang asli.
 Satu server Node.js melayani tiga cara bermain:
 
 | Mode | Cara main | Butuh internet? |

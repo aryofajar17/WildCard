@@ -563,7 +563,7 @@ wss.on('connection', (ws) => {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log('========================================');
-  console.log('  UNO CHIPS — server siap!');
+  console.log('  WILD CARD — server siap!');
   console.log('========================================');
   console.log(`Komputer ini     : http://localhost:${PORT}`);
   const urls = lanUrls();
@@ -589,7 +589,7 @@ server.listen(PORT, '0.0.0.0', () => {
         console.log('⚠  PENTING: Firewall Windows belum mengizinkan Node.exe diakses dari jaringan.');
         console.log('   HP temanmu kemungkinan TIDAK BISA membuka server ini.');
         console.log('   Jalankan SEKALI di Command Prompt (Run as Administrator):');
-        console.log(`   netsh advfirewall firewall add rule name="UNO Chips" dir=in action=allow program="${process.execPath}" enable=yes`);
+        console.log(`   netsh advfirewall firewall add rule name="WILD CARD" dir=in action=allow program="${process.execPath}" enable=yes`);
       }
     });
   }
