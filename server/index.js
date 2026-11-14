@@ -528,6 +528,16 @@ wss.on('connection', (ws) => {
             seat.chips = Math.min(1e9, seat.chips + 5000);
             room.broadcast();
             break;
+          case 'rename': {
+            // Pemain mengganti nickname sendiri; langsung terlihat oleh semua.
+            const nm = cleanName(msg.name, seat.name);
+            if (nm === seat.name) return;
+            seat.name = nm;
+            const gp = room.game && room.game.players[seat.seat];
+            if (gp) gp.name = nm; // ikut terlihat di meja saat ronde berjalan
+            room.broadcast();
+            break;
+          }
           case 'action': {
             const act = msg.action;
             if (!g || g.phase !== 'playing') return;

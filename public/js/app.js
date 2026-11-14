@@ -85,6 +85,33 @@ function askColor(cb) {
   m.appendChild(g);
   openModal(m, true);
 }
+function askRename() {
+  const m = document.createElement('div');
+  m.className = 'modal';
+  m.innerHTML = '<h3>✏️ Ganti Nickname</h3>';
+  const inp = document.createElement('input');
+  inp.className = 'rename-input';
+  inp.maxLength = 14;
+  inp.value = store.name || '';
+  inp.placeholder = 'Nama baru';
+  const b = document.createElement('button');
+  b.className = 'btn btn-accent big';
+  b.textContent = 'Simpan';
+  const submit = () => {
+    const nm = inp.value.trim();
+    if (!nm) { toast('Nama tidak boleh kosong'); return; }
+    store.name = nm; // tersimpan untuk sesi berikutnya
+    send({ t: 'rename', name: nm });
+    closeModal(true);
+  };
+  b.onclick = submit;
+  inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+  m.appendChild(inp);
+  m.appendChild(b);
+  openModal(m, true);
+  setTimeout(() => inp.focus(), 60);
+}
+
 function askSwap(cb) {
   const st = App.st;
   const m = document.createElement('div');
@@ -489,6 +516,15 @@ function renderLobby() {
       <div class="nm">${esc(s.name)} ${s.isBot ? '🤖' : ''}${i === lb.hostSeat ? ' 👑' : ''}
         <i>${s.isBot ? 'bot' : s.connected ? 'terhubung' : 'terputus'}</i></div>
       <div class="chipn">🪙 ${fmt(s.chips)}</div>`;
+    // pemain bisa mengganti nickname-nya sendiri dari lobby
+    if (i === App.mySeat && !s.isBot) {
+      const ed = document.createElement('button');
+      ed.className = 'btn small btn-ghost';
+      ed.textContent = '✏️';
+      ed.title = 'Ganti nickname';
+      ed.onclick = askRename;
+      div.appendChild(ed);
+    }
     box.appendChild(div);
   });
   const count = (lb.seats || []).filter(Boolean).length;
